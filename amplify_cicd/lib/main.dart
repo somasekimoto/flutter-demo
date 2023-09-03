@@ -1,125 +1,412 @@
+import 'package:amplify_api/amplify_api.dart';
+import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
+import 'package:amplify_authenticator/amplify_authenticator.dart';
+import 'package:amplify_flutter/amplify_flutter.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
-void main() {
+import 'amplifyconfiguration.dart';
+import 'models/ModelProvider.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await _configureAmplify();
   runApp(const MyApp());
+}
+
+Future<void> _configureAmplify() async {
+  // To be filled in
+  try {
+    // Create the API plugin.
+    //
+    // If `ModelProvider.instance` is not available, try running 
+    // `amplify codegen models` from the root of your project.
+    final api = AmplifyAPI(modelProvider: ModelProvider.instance);
+
+    // Create the Auth plugin.
+    final auth = AmplifyAuthCognito();
+
+    // Add the plugins and configure Amplify for your app.
+    await Amplify.addPlugins([api, auth]);
+    await Amplify.configure(amplifyconfig);
+
+    safePrint('Successfully configured');
+  } on Exception catch (e) {
+    safePrint('Error configuring Amplify: $e');
+  }
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
+  // GoRouter configuration
+  static final _router = GoRouter(
+    routes: [
+      GoRoute(
+        path: '/',
+        builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: '/manage-budget-entry',
+        name: 'manage',
+        builder: (context, state) => ManageBudgetEntryScreen(
+          budgetEntry: state.extra as BudgetEntry?,
+        ),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a blue toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
+    return Authenticator(
+      child: MaterialApp.router(
+        routerConfig: _router,
+        debugShowCheckedModeBanner: false,
+        builder: Authenticator.builder(),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class LoadingScreen extends StatelessWidget {
+  const LoadingScreen({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  var _budgetEntries = <BudgetEntry>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshBudgetEntries();
+  }
+
+  Future<void> _refreshBudgetEntries() async {
+    // To be filled in
+    try {
+      final request = ModelQueries.list(BudgetEntry.classType);
+      final response = await Amplify.API.query(request: request).response;
+
+      final todos = response.data?.items;
+      if (response.hasErrors) {
+        safePrint('errors: ${response.errors}');
+        return;
+      }
+      setState(() {
+        _budgetEntries = todos!.whereType<BudgetEntry>().toList();
+      });
+    } on ApiException catch (e) {
+      safePrint('Query failed: $e');
+    }
+  }
+
+  Future<void> _deleteBudgetEntry(BudgetEntry budgetEntry) async {
+    // To be filled in
+    final request = ModelMutations.delete<BudgetEntry>(budgetEntry);
+    final response = await Amplify.API.mutate(request: request).response;
+    safePrint('Delete response: $response');
+    await _refreshBudgetEntries();
+  }
+
+  Future<void> _navigateToBudgetEntry({BudgetEntry? budgetEntry}) async {
+    // To be filled in
+    await context.pushNamed('manage', extra: budgetEntry);
+    // Refresh the entries when returning from the
+    // budget entry screen.
+    await _refreshBudgetEntries();
+  }
+
+  double _calculateTotalBudget(List<BudgetEntry?> items) {
+    var totalAmount = 0.0;
+    for (final item in items) {
+      totalAmount += item?.amount ?? 0;
+    }
+    return totalAmount;
+  }
+
+  Widget _buildRow({
+    required String title,
+    required String description,
+    required String amount,
+    TextStyle? style,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: style,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            description,
+            textAlign: TextAlign.center,
+            style: style,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            amount,
+            textAlign: TextAlign.center,
+            style: style,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        // Navigate to the page to create new budget entries
+        onPressed: _navigateToBudgetEntry,
+        child: const Icon(Icons.add),
+      ),
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: const Text('Budget Tracker'),
       ),
       body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
+        child: Padding(
+          padding: const EdgeInsets.only(top: 25),
+          child: RefreshIndicator(
+            onRefresh: _refreshBudgetEntries,
+            child: Column(
+              children: [
+                if (_budgetEntries.isEmpty)
+                  const Text('Use the \u002b sign to add new budget entries')
+                else
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Show total budget from the list of all BudgetEntries
+                      Text(
+                        'Total Budget: \$ ${_calculateTotalBudget(_budgetEntries).toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 24),
+                      )
+                    ],
+                  ),
+                const SizedBox(height: 30),
+                _buildRow(
+                  title: 'Title',
+                  description: 'Description',
+                  amount: 'Amount',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const Divider(),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _budgetEntries.length,
+                    itemBuilder: (context, index) {
+                      final budgetEntry = _budgetEntries[index];
+                      return Dismissible(
+                        key: ValueKey(budgetEntry),
+                        background: const ColoredBox(
+                          color: Colors.red,
+                          child: Padding(
+                            padding: EdgeInsets.only(right: 10),
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: Icon(Icons.delete, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                        onDismissed: (_) => _deleteBudgetEntry(budgetEntry),
+                        child: ListTile(
+                          onTap: () => _navigateToBudgetEntry(
+                            budgetEntry: budgetEntry,
+                          ),
+                          title: _buildRow(
+                            title: budgetEntry.title,
+                            description: budgetEntry.description ?? '',
+                            amount:
+                                '\$ ${budgetEntry.amount.toStringAsFixed(2)}',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+    );
+  }
+}
+
+class ManageBudgetEntryScreen extends StatefulWidget {
+  const ManageBudgetEntryScreen({
+    required this.budgetEntry,
+    super.key,
+  });
+
+  final BudgetEntry? budgetEntry;
+
+  @override
+  State<ManageBudgetEntryScreen> createState() =>
+      _ManageBudgetEntryScreenState();
+}
+
+class _ManageBudgetEntryScreenState extends State<ManageBudgetEntryScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _amountController = TextEditingController();
+
+  late final String _titleText;
+
+  bool get _isCreate => _budgetEntry == null;
+  BudgetEntry? get _budgetEntry => widget.budgetEntry;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final budgetEntry = _budgetEntry;
+    if (budgetEntry != null) {
+      _titleController.text = budgetEntry.title;
+      _descriptionController.text = budgetEntry.description ?? '';
+      _amountController.text = budgetEntry.amount.toStringAsFixed(2);
+      _titleText = 'Update budget entry';
+    } else {
+      _titleText = 'Create budget entry';
+    }
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  Future<void> submitForm() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    // If the form is valid, submit the data
+    final title = _titleController.text;
+    final description = _descriptionController.text;
+    final amount = double.parse(_amountController.text);
+
+    if (_isCreate) {
+      // Create a new budget entry
+      final newEntry = BudgetEntry(
+        title: title,
+        description: description.isNotEmpty ? description : null,
+        amount: amount,
+      );
+      final request = ModelMutations.create(newEntry);
+      final response = await Amplify.API.mutate(request: request).response;
+      safePrint('Create result: $response');
+    } else {
+      // Update budgetEntry instead
+      final updateBudgetEntry = _budgetEntry!.copyWith(
+        title: title,
+        description: description.isNotEmpty ? description : null,
+        amount: amount,
+      );
+      final request = ModelMutations.update(updateBudgetEntry);
+      final response = await Amplify.API.mutate(request: request).response;
+      safePrint('Update result: $response');
+    }
+
+    // Navigate back to homepage after create/update executes
+    if (mounted) {
+      context.pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_titleText),
+      ),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: SingleChildScrollView(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextFormField(
+                      controller: _titleController,
+                      decoration: const InputDecoration(
+                        labelText: 'Title (required)',
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter a title';
+                        }
+                        return null;
+                      },
+                    ),
+                    TextFormField(
+                      controller: _descriptionController,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
+                      ),
+                    ),
+                    TextFormField(
+                      controller: _amountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        signed: false,
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Amount (required)',
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter an amount';
+                        }
+                        final amount = double.tryParse(value);
+                        if (amount == null || amount <= 0) {
+                          return 'Please enter a valid amount';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton(
+                      onPressed: submitForm,
+                      child: Text(_titleText),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
